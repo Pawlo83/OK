@@ -10,6 +10,8 @@
 
 #include <queue>
 
+#include <chrono>
+
 using namespace std;
 using json = nlohmann::json;
 
@@ -46,7 +48,7 @@ vector<vector<int>> generateGraph(int n, float d, int r){
     for(int i=0;i<n;i++){ // Fill the diagonal with 0s
         matrix[i][i]=0;
     }
-    for(int _=0;_<rate;_++){ 
+    for(int _=0;_<rate;_++){
         int v1=uniform_int_distribution<>(0,n-1)(gen);
         int v2=uniform_int_distribution<>(0,n-1)(gen);
         while(matrix[v1][v2] != numeric_limits<int>::max() || matrix[v2][v1]!=numeric_limits<int>::max() || v1==v2){
@@ -67,7 +69,7 @@ vector<vector<int>> generateGraph(int n, float d, int r){
     }
 }
 
-void printMatrix(const vector<vector<int>>& matrix){
+void printMatrix(const vector<vector<float>>& matrix){
     int n=matrix.size();
     for(int i=0;i<n;++i){
         for (int j=0;j<n;++j){
@@ -75,6 +77,12 @@ void printMatrix(const vector<vector<int>>& matrix){
         }
         cout << endl;
     }
+}
+
+void sortMatrixByColumn(vector<vector<float>>& matrix, int column) {
+    sort(matrix.begin(), matrix.end(), [column](const auto& a, const auto& b) {
+        return a[column] > b[column];
+    });
 }
 
 void generateGraphImage(const vector<vector<int>>& matrix, const string& filename){
@@ -144,7 +152,7 @@ bool bfs(const vector<vector<int>>& residual, vector<int>& parent, int source, i
     q.push(source);
     visited[source]=true;
     parent[source]=-1;
-    while(!q.empty()){   
+    while(!q.empty()){
         int u=q.front();
         q.pop();
         for(int v=0;v<n;++v){
@@ -160,7 +168,7 @@ bool bfs(const vector<vector<int>>& residual, vector<int>& parent, int source, i
     return false;
 }
 
-void generateKarpImage(const vector<vector<int>>& flow_matrix, const vector<vector<int>>& residual, const string& filename){
+void generateKarpImage(const vector<vector<int>>& flow_matrix, const vector<vector<int>>& residual, const string& filename, int iteration){
     ofstream dotFile("karp.dot");
     dotFile << "digraph G {\n";
 
@@ -182,17 +190,17 @@ void generateKarpImage(const vector<vector<int>>& flow_matrix, const vector<vect
     dotFile << "}\n";
     dotFile.close();
 
-    string command = "dot -Tpng karp.dot -o "+filename;
+    string command = "dot -Tpng karp.dot -o "+filename+to_string(iteration)+".png";
     system(command.c_str());
 }
 
-int edmonds_karp(const vector<vector<int>>& flow_matrix, int source, int sink){
+int edmonds_karp(const vector<vector<int>>& flow_matrix, int source, int sink, int iteration=-1){
     int n=flow_matrix.size();
     vector<vector<int>> residual(flow_matrix);
 
     int max_flow=0;
     vector<int> parent(n);
-    
+
     while (bfs(residual,parent,source,sink)){
         int path_flow=numeric_limits<int>::max();
 
@@ -210,11 +218,83 @@ int edmonds_karp(const vector<vector<int>>& flow_matrix, int source, int sink){
 		}
         max_flow+=path_flow;
     }
-    printMatrix(residual);
-	generateKarpImage(flow_matrix,residual,"karp.png");
+    //printMatrix(residual);
+    if(max_flow>0){
+    	generateKarpImage(flow_matrix,residual,"karp", iteration);
+    }
     return max_flow;
 }
 
+vector<vector<float>> finding_single_connections(const vector<vector<int>>& graph,const vector<vector<int>>& flow_matrix, int source, int sink, const string finding_method){
+	int n=flow_matrix.size();
+	vector<vector<float>> possible_edges(n,vector<float>(n,0)); //tymczasowy wymiar
+	vector<vector<int>> work_matrix(flow_matrix);
+	int j=0;
+	for(int i=0;i<n;++i){
+		work_matrix[sink][i]=0;
+		work_matrix[i][sink]=0;
+	}
+	for(int i=0;i<n;++i){
+		work_matrix[sink][i]=flow_matrix[sink][i];
+		work_matrix[i][sink]=flow_matrix[i][sink];
+		int flow;
+		if(finding_method=="edmonds_karp"){
+           	flow=edmonds_karp(work_matrix,source,sink,i);
+	    }
+	    //else if(finding_method=="pushRelabelMaxFlow"){
+	     	//flow=pushRelabelMaxFlow(work_matrix,source,sink);
+	    //}
+	    else{
+	     	cerr << "Invalid flow finding method." << endl;
+	     	return {};
+     	}
+		if(flow>0){
+			//printMatrix(work_matrix);
+			//printMatrix(flow_matrix);
+			possible_edges[j][0]=i;
+			possible_edges[j][1]=flow;
+			possible_edges[j][2]=graph[sink][i];
+			possible_edges[j][3]=static_cast<float>(flow)/graph[sink][i];
+			j++;
+			cout << "Max flow: " << flow << ", edge: " << i << "," << sink << ", edge lenght: " << graph[sink][i] <<endl;
+		}
+		work_matrix[sink][i]=0;
+		work_matrix[i][sink]=0;
+	}
+	sortMatrixByColumn(possible_edges,3);
+	return possible_edges;
+}
+void choose_edges(vector<vector<float>> possible_edges, int sink, int max_flow){
+	int needed_flow_inp;
+	int n=possible_edges.size();
+	vector<int> used_edges(n,0);
+	cout << "Input needed flow: ";
+	cin >> needed_flow_inp;
+	int needed_flow = needed_flow_inp;
+
+	for(int i=0;i<n;i++){
+		needed_flow-=possible_edges[i][1];
+		used_edges[i]=possible_edges[i][0];
+		if(needed_flow<0){
+			break;
+		}
+	}
+	if(needed_flow>0){
+		cout << "Max flow = " << max_flow << ", so its imposible to get flow that = " << needed_flow_inp << endl;
+		return;
+	}
+	cout << "Edges needed to be used:" << endl;
+	for(int i=0;i<n;i++){
+		if(used_edges[i]==0){
+			break;
+		}
+		if(i!=0){
+			cout << "; ";
+		}
+		cout << used_edges[i] << "," << sink;
+	}
+	cout<<endl;
+}
 
 int main(){
     int n=10; // Set the number of vertices
@@ -223,10 +303,10 @@ int main(){
     float d=0.3; // Set saturation
     vector<vector<int>> graph=generateGraph(n,d,r);
     vector<vector<int>> flow_matrix=generateFlow(graph,f);
-    
+
     // Print generated graphs and view them as images
-    printMatrix(graph);
-    printMatrix(flow_matrix);
+    //printMatrix(graph);
+    //printMatrix(flow_matrix);
     generateGraphImage(graph, "graph.png");
     generateFlowImage(flow_matrix, "flow.png");
 
@@ -235,9 +315,16 @@ int main(){
     while(sink==source){
     	sink=uniform_int_distribution<>(0, n-1)(gen);
     }
-    cout << "Source: " << source << " " << "Sink:" << sink << endl;
-	int max_flow=edmonds_karp(flow_matrix,source,sink);
-    cout << "Max flow:  "<< max_flow << endl;
-    
+
+ 	auto start_timeEK = chrono::steady_clock::now();
+	int max_flowEK=edmonds_karp(flow_matrix,source,sink);
+	cout << "Max flow: " << max_flowEK << endl;
+	vector<vector<float>> possible_edgesEK=finding_single_connections(graph,flow_matrix,source,sink,"edmonds_karp");
+	auto end_timeEK =  chrono::steady_clock::now(); 
+	auto timeEK=chrono::duration_cast<chrono::milliseconds>(end_timeEK - start_timeEK);
+	cout << "Time for EK: " << timeEK.count() << endl;
+	
+	choose_edges(possible_edgesEK, sink, max_flowEK);
+	
     return 0;
 }
