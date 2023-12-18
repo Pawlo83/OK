@@ -14,7 +14,7 @@
 
 using namespace std;
 using json = nlohmann::json;
-
+int x =0;
 // Define random number generator
 random_device rd;
 mt19937 gen(rd());
@@ -69,7 +69,7 @@ vector<vector<int>> generateGraph(int n, float d, int r){
     }
 }
 
-void printMatrix(const vector<vector<float>>& matrix){
+void printMatrix(const vector<vector<int>>& matrix){
     int n=matrix.size();
     for(int i=0;i<n;++i){
         for (int j=0;j<n;++j){
@@ -218,28 +218,40 @@ int edmonds_karp(const vector<vector<int>>& flow_matrix, int source, int sink, i
 		}
         max_flow+=path_flow;
     }
-    //printMatrix(residual);
+
+    // Generate graphical representation of the residual flow matrix
     if(max_flow>0){
     	generateKarpImage(flow_matrix,residual,"karp", iteration);
-    }
+    	//printMatrix(residual);
+    }	
+    
     return max_flow;
 }
 
-vector<vector<float>> finding_single_connections(const vector<vector<int>>& graph,const vector<vector<int>>& flow_matrix, int source, int sink, const string finding_method){
+vector<vector<float>> finding_single_connections(const vector<vector<int>>& graph,const vector<vector<int>>& flow_matrix, int source, int sink, const string finding_method, vector<int> iff = {}, int iff1=0){
 	int n=flow_matrix.size();
-	vector<vector<float>> possible_edges(n,vector<float>(n,0)); //tymczasowy wymiar
+	vector<vector<float>> possible_edges(n,vector<float>(4,0));
 	vector<vector<int>> work_matrix(flow_matrix);
 	int j=0;
+	
 	for(int i=0;i<n;++i){
-		work_matrix[sink][i]=0;
-		work_matrix[i][sink]=0;
+		auto ifff=find(iff.begin(), iff.end(), i);
+		if(ifff==iff.end()){
+			work_matrix[sink][i]=0;
+			work_matrix[i][sink]=0;
+		}
 	}
+	//printMatrix(work_matrix);
+	//cout << "^ fsc1" << endl;
 	for(int i=0;i<n;++i){
 		work_matrix[sink][i]=flow_matrix[sink][i];
 		work_matrix[i][sink]=flow_matrix[i][sink];
+		//printMatrix(work_matrix);
+		//cout << "^ fsc" << endl;
 		int flow;
 		if(finding_method=="edmonds_karp"){
-           	flow=edmonds_karp(work_matrix,source,sink,i);
+           	flow=edmonds_karp(work_matrix,source,sink,x);
+           	x++;
 	    }
 	    //else if(finding_method=="pushRelabelMaxFlow"){
 	     	//flow=pushRelabelMaxFlow(work_matrix,source,sink);
@@ -248,59 +260,92 @@ vector<vector<float>> finding_single_connections(const vector<vector<int>>& grap
 	     	cerr << "Invalid flow finding method." << endl;
 	     	return {};
      	}
-		if(flow>0){
-			//printMatrix(work_matrix);
-			//printMatrix(flow_matrix);
+     	//cout << flow << " " << iff1 <<endl;
+		if(flow-iff1>0){
 			possible_edges[j][0]=i;
-			possible_edges[j][1]=flow;
+			possible_edges[j][1]=flow-iff1;
 			possible_edges[j][2]=graph[sink][i];
 			possible_edges[j][3]=static_cast<float>(flow)/graph[sink][i];
 			j++;
-			cout << "Max flow: " << flow << ", edge: " << i << "," << sink << ", edge lenght: " << graph[sink][i] <<endl;
+			cout << "Max flow: " << flow-iff1 << ", edge: " << i << "," << sink << ", edge length: " << graph[sink][i] <<endl;
 		}
-		work_matrix[sink][i]=0;
-		work_matrix[i][sink]=0;
+
+		auto ifff=find(iff.begin(), iff.end(), i);
+		if(ifff==iff.end()){
+			work_matrix[sink][i]=0;
+			work_matrix[i][sink]=0;
+		}
+		
 	}
 	sortMatrixByColumn(possible_edges,3);
 	return possible_edges;
 }
-void choose_edges(vector<vector<float>> possible_edges, int sink, int max_flow){
+
+void choose_edges(const vector<vector<int>>& graph, const vector<vector<int>>& flow_matrix, vector<vector<float>> possible_edges, int source, int sink, int max_flow, const string finding_method){
 	int needed_flow_inp;
 	int n=possible_edges.size();
-	vector<int> used_edges(n,0);
+	vector<vector<int>> work_matrix(flow_matrix);
+	for(int i=0;i<n;++i){
+		work_matrix[sink][i]=0;
+		work_matrix[i][sink]=0;
+	}
+	vector<int> used_edges(n,-1);
 	cout << "Input needed flow: ";
 	cin >> needed_flow_inp;
 	int needed_flow = needed_flow_inp;
 
-	for(int i=0;i<n;i++){
-		needed_flow-=possible_edges[i][1];
-		used_edges[i]=possible_edges[i][0];
-		if(needed_flow<0){
-			break;
-		}
-	}
-	if(needed_flow>0){
+	if(needed_flow>max_flow){
 		cout << "Max flow = " << max_flow << ", so its imposible to get flow that = " << needed_flow_inp << endl;
 		return;
 	}
+	int flowFull=0;
+	int i=0;
+	//for(int i=0;i<n;++i){
+	while(flowFull<needed_flow){
+		//printMatrix(work_matrix);
+		//cout << endl;
+		work_matrix[sink][possible_edges[0][0]]=flow_matrix[sink][possible_edges[0][0]];
+		work_matrix[possible_edges[0][0]][sink]=flow_matrix[possible_edges[0][0]][sink];
+		used_edges[i]=possible_edges[0][0];
+	    //for(int z=0;z<=i;z++){
+	    //	cout << "cc" <<endl;
+	    //	cout << used_edges[z] <<"cc"<<endl;
+	    //}
+		//printMatrix(work_matrix);
+		//cout << endl;
+		if(finding_method=="edmonds_karp"){
+           	flowFull=edmonds_karp(work_matrix,source,sink,-i-2);
+           	cout << flowFull << endl;
+	    }
+
+		//if(flowFull>=needed_flow){
+		//	break;
+		//}
+		possible_edges=finding_single_connections(graph,flow_matrix,source,sink,"edmonds_karp",used_edges,flowFull);
+		i++;
+	}
+
+	int full_added_lenght=0;
 	cout << "Edges needed to be used:" << endl;
 	for(int i=0;i<n;i++){
-		if(used_edges[i]==0){
+		if(used_edges[i]==-1){
 			break;
 		}
 		if(i!=0){
 			cout << "; ";
 		}
 		cout << used_edges[i] << "," << sink;
+		full_added_lenght+=graph[used_edges[i]][sink];
 	}
 	cout<<endl;
+	cout << "Full added length: "<<full_added_lenght<<endl;
 }
 
 int main(){
-    int n=10; // Set the number of vertices
+    int n=5; // Set the number of vertices
     int r=1000; // Set max distance
     int f=30; // Set max flow
-    float d=0.3; // Set saturation
+    float d=0.9; // Set saturation
     vector<vector<int>> graph=generateGraph(n,d,r);
     vector<vector<int>> flow_matrix=generateFlow(graph,f);
 
@@ -310,21 +355,23 @@ int main(){
     generateGraphImage(graph, "graph.png");
     generateFlowImage(flow_matrix, "flow.png");
 
+	// Set random source and sink
     int source=uniform_int_distribution<>(0, n-1)(gen);
     int sink=source;
     while(sink==source){
     	sink=uniform_int_distribution<>(0, n-1)(gen);
     }
-
+	cout << "Source: " << source << " " << "Sink:" << sink << endl;
+	
  	auto start_timeEK = chrono::steady_clock::now();
 	int max_flowEK=edmonds_karp(flow_matrix,source,sink);
 	cout << "Max flow: " << max_flowEK << endl;
 	vector<vector<float>> possible_edgesEK=finding_single_connections(graph,flow_matrix,source,sink,"edmonds_karp");
-	auto end_timeEK =  chrono::steady_clock::now(); 
+	auto end_timeEK = chrono::steady_clock::now(); 
 	auto timeEK=chrono::duration_cast<chrono::milliseconds>(end_timeEK - start_timeEK);
 	cout << "Time for EK: " << timeEK.count() << endl;
 	
-	choose_edges(possible_edgesEK, sink, max_flowEK);
+	choose_edges(graph, flow_matrix, possible_edgesEK, source, sink, max_flowEK, "edmonds_karp");
 	
     return 0;
 }
